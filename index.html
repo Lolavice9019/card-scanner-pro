@@ -756,13 +756,18 @@
                             
                             // Detect cards
                             const src = cv.matFromImageData(imageData);
-                            const cards = CardDetector.detectCards(src, settings);
+                            let cards = CardDetector.detectCards(src, settings);
                             
                             setBatchFiles(prev => prev.map((f, idx) => 
                                 idx === i ? { ...f, progress: 75 } : f
                             ));
                             
                             const processedCards = [];
+                            
+                            // If no cards detected, treat the whole image as a card
+                            if (cards.length === 0) {
+                                cards = [imageData];
+                            }
                             
                             for (let cardIdx = 0; cardIdx < cards.length; cardIdx++) {
                                 const card = cards[cardIdx];
@@ -781,7 +786,10 @@
                                 });
                             }
                             
-                            cards.forEach(card => card.delete());
+                            // Only delete if they're OpenCV mats
+                            if (cards[0] && cards[0].delete) {
+                                cards.forEach(card => card.delete());
+                            }
                             src.delete();
                             
                             setBatchFiles(prev => prev.map((f, idx) => 
