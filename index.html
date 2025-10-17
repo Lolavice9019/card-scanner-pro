@@ -715,7 +715,9 @@
                     file,
                     name: file.name,
                     status: 'pending',
-                    progress: 0
+                    progress: 0,
+                    processedCards: [],
+                    cardCount: 0
                 }));
                 setBatchFiles(prev => [...prev, ...newFiles]);
             };
@@ -724,17 +726,100 @@
                 for (let i = 0; i < batchFiles.length; i++) {
                     if (batchFiles[i].status === 'pending') {
                         setBatchFiles(prev => prev.map((f, idx) => 
-                            idx === i ? { ...f, status: 'processing' } : f
+                            idx === i ? { ...f, status: 'processing', progress: 25 } : f
                         ));
                         
-                        // Simulate processing
-                        await new Promise(resolve => setTimeout(resolve, 2000));
-                        
-                        setBatchFiles(prev => prev.map((f, idx) => 
-                            idx === i ? { ...f, status: 'completed', progress: 100 } : f
-                        ));
+                        try {
+                            const file = batchFiles[i].file;
+                            const img = await new Promise((resolve, reject) => {
+                                const reader = new FileReader();
+                                reader.onload = (e) => {
+                                    const image = new Image();
+                                    image.onload = () => resolve(image);
+                                    image.onerror = reject;
+                                    image.src = e.target.result;
+                                };
+                                reader.onerror = reject;
+                                reader.readAsDataURL(file);
+                            });
+                            
+                            setBatchFiles(prev => prev.map((f, idx) => 
+                                idx === i ? { ...f, progress: 50 } : f
+                            ));
+                            
+                            const canvas = document.createElement('canvas');
+                            canvas.width = img.width;
+                            canvas.height = img.height;
+                            const ctx = canvas.getContext('2d');
+                            ctx.drawImage(img, 0, 0);
+                            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                            
+                            // Detect cards
+                            const src = cv.matFromImageData(imageData);
+                            const cards = CardDetector.detectCards(src, settings);
+                            
+                            setBatchFiles(prev => prev.map((f, idx) => 
+                                idx === i ? { ...f, progress: 75 } : f
+                            ));
+                            
+                            const processedCards = [];
+                            
+                            for (let cardIdx = 0; cardIdx < cards.length; cardIdx++) {
+                                const card = cards[cardIdx];
+                                const enhanced = ImageProcessor.enhanceImage(card);
+                                
+                                const cardCanvas = document.createElement('canvas');
+                                cardCanvas.width = enhanced.width;
+                                cardCanvas.height = enhanced.height;
+                                const cardCtx = cardCanvas.getContext('2d');
+                                cardCtx.putImageData(enhanced, 0, 0);
+                                
+                                processedCards.push({
+                                    id: `${batchFiles[i].id}_card_${cardIdx}`,
+                                    url: cardCanvas.toDataURL(),
+                                    index: cardIdx
+                                });
+                            }
+                            
+                            cards.forEach(card => card.delete());
+                            src.delete();
+                            
+                            setBatchFiles(prev => prev.map((f, idx) => 
+                                idx === i ? { 
+                                    ...f, 
+                                    status: 'completed', 
+                                    progress: 100,
+                                    processedCards,
+                                    cardCount: processedCards.length
+                                } : f
+                            ));
+                        } catch (error) {
+                            console.error('Batch processing error:', error);
+                            setBatchFiles(prev => prev.map((f, idx) => 
+                                idx === i ? { ...f, status: 'error', progress: 0 } : f
+                            ));
+                        }
                     }
                 }
+            };
+            
+            const saveBatchCard = (fileId, cardId, cardUrl) => {
+                const link = document.createElement('a');
+                link.download = `card_${fileId}_${cardId}.png`;
+                link.href = cardUrl;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            };
+            
+            const downloadAllProcessed = () => {
+                batchFiles.forEach(file => {
+                    if (file.status === 'completed' && file.processedCards) {
+                        file.processedCards.forEach(card => {
+                            setTimeout(() => saveBatchCard(file.id, card.index, card.url), 100 * card.index);
+                        });
+                    }
+                });
             };
             
             return (
@@ -891,7 +976,7 @@
                                             input.click();
                                         }}
                                     >
-                                        ➕ Add Files
+                                        ➕ Add Images
                                     </button>
                                     <button 
                                         className="btn btn-primary"
@@ -935,21 +1020,77 @@
                                 
                                 <div className="batch-files">
                                     {batchFiles.length === 0 ? (
-                                        <p style={{textAlign: 'center', padding: '40px', color: '#999'}}>
-                                            No files added yet. Click "Add Files" to begin.
-                                        </p>
-                                    ) : (
-                                        batchFiles.map(file => (
-                                            <div 
-                                                key={file.id} 
-                                                className={`batch-file-item ${file.status}`}
-                                            >
-                                                <span>{file.name}</span>
-                                                <span className={`status-badge ${file.status}`}>
-                                                    {file.status}
-                                                </span>
+                                        <div style={{textAlign: 'center', padding: '40px'}}>
+                                            <p style={{color: '#999', marginBottom: '20px'}}>
+                                                No files added yet. Click "Add Images" to begin.
+                                            </p>
+                                            <div style={{background: '#f0f8ff', padding: '20px', borderRadius: '8px', textAlign: 'left', maxWidth: '600px', margin: '0 auto'}}>
+                                                <h4 style={{marginBottom: '10px'}}>📋 What Batch Processing Does:</h4>
+                                                <ul style={{lineHeight: '1.8'}}>
+                                                    <li>✅ Automatically detects and crops cards from each image</li>
+                                                    <li>✅ Applies perspective correction for clean extraction</li>
+                                                    <li>✅ Enhances each card with filters and sharpening</li>
+                                                    <li>✅ Saves each card individually or download all at once</li>
+                                                </ul>
                                             </div>
-                                        ))
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <div style={{marginBottom: '20px', display: 'flex', gap: '10px', justifyContent: 'flex-end'}}>
+                                                <button 
+                                                    className="btn btn-primary"
+                                                    onClick={downloadAllProcessed}
+                                                    disabled={!batchFiles.some(f => f.status === 'completed')}
+                                                >
+                                                    📥 Download All Processed
+                                                </button>
+                                            </div>
+                                            {batchFiles.map(file => (
+                                                <div 
+                                                    key={file.id} 
+                                                    className={`batch-file-item ${file.status}`}
+                                                    style={{flexDirection: 'column', alignItems: 'flex-start'}}
+                                                >
+                                                    <div style={{display: 'flex', justifyContent: 'space-between', width: '100%', marginBottom: '10px'}}>
+                                                        <span><strong>{file.name}</strong></span>
+                                                        <span className={`status-badge ${file.status}`}>
+                                                            {file.status === 'completed' ? `✓ ${file.cardCount} card(s) detected` : file.status}
+                                                        </span>
+                                                    </div>
+                                                    {file.status === 'processing' && (
+                                                        <div className="progress-bar" style={{width: '100%', margin: '10px 0'}}>
+                                                            <div className="progress-fill" style={{width: `${file.progress}%`}}>
+                                                                {file.progress}%
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                    {file.status === 'completed' && file.processedCards && file.processedCards.length > 0 && (
+                                                        <div style={{display: 'flex', gap: '15px', flexWrap: 'wrap', marginTop: '10px', width: '100%'}}>
+                                                            {file.processedCards.map(card => (
+                                                                <div key={card.id} style={{textAlign: 'center'}}>
+                                                                    <img 
+                                                                        src={card.url} 
+                                                                        alt={`Card ${card.index + 1}`}
+                                                                        style={{width: '120px', height: 'auto', borderRadius: '5px', boxShadow: '0 2px 8px rgba(0,0,0,0.2)', marginBottom: '8px'}}
+                                                                    />
+                                                                    <br/>
+                                                                    <button 
+                                                                        className="btn btn-secondary"
+                                                                        style={{fontSize: '0.85rem', padding: '6px 12px'}}
+                                                                        onClick={() => saveBatchCard(file.id, card.index, card.url)}
+                                                                    >
+                                                                        💾 Save
+                                                                    </button>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                    {file.status === 'error' && (
+                                                        <p style={{color: '#dc3545', marginTop: '5px'}}>❌ Failed to process this image</p>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </>
                                     )}
                                 </div>
                             </div>
