@@ -642,17 +642,11 @@
                         const ctx = canvas.getContext('2d');
                         ctx.putImageData(enhanced, 0, 0);
                         
-                        if (processedImage) {
-                            setProcessedImage({
-                                data: enhanced,
-                                url: canvas.toDataURL()
-                            });
-                        } else {
-                            setOriginalImage({
-                                data: enhanced,
-                                url: canvas.toDataURL()
-                            });
-                        }
+                        // Always set processedImage so save button works
+                        setProcessedImage({
+                            data: enhanced,
+                            url: canvas.toDataURL()
+                        });
                         
                         setProgress(100);
                     } catch (error) {
@@ -695,12 +689,23 @@
             // Save result
             const saveResult = () => {
                 const imageToSave = processedImage || originalImage;
-                if (!imageToSave) return;
+                if (!imageToSave) {
+                    alert('Please upload an image first!');
+                    return;
+                }
                 
-                const link = document.createElement('a');
-                link.download = 'enhanced_card.png';
-                link.href = imageToSave.url;
-                link.click();
+                try {
+                    const link = document.createElement('a');
+                    link.download = `card_${Date.now()}.png`;
+                    link.href = imageToSave.url;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    console.log('Image saved successfully');
+                } catch (error) {
+                    console.error('Save error:', error);
+                    alert('Failed to save image. Please try again.');
+                }
             };
             
             // Batch processing
@@ -819,7 +824,7 @@
                                             <button 
                                                 className="btn btn-secondary"
                                                 onClick={saveResult}
-                                                disabled={!processedImage}
+                                                disabled={!originalImage}
                                             >
                                                 💾 Save Result
                                             </button>
